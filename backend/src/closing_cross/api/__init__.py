@@ -1,3 +1,4 @@
+import json
 import sqlite3
 from typing import Literal
 
@@ -25,6 +26,7 @@ def ready() -> dict[str, str]:
     try:
         with connect(readonly=True) as connection:
             connection.execute("SELECT 1 FROM pilot_signals LIMIT 1").fetchone()
+            connection.execute("SELECT 1 FROM verified_scans LIMIT 1").fetchone()
     except sqlite3.Error as error:
         raise HTTPException(503, "Pilot database is unavailable") from error
     return {"status": "ready"}
@@ -37,3 +39,14 @@ def signals() -> list[Signal]:
             "SELECT symbol, session_number, direction FROM pilot_signals ORDER BY session_number"
         ).fetchall()
     return [Signal(**dict(row)) for row in rows]
+
+
+@app.get("/api/pilot/verified-scan")
+def verified_scan() -> dict | None:
+    with connect(readonly=True) as connection:
+        row = connection.execute(
+            "SELECT id, observed_at, report FROM verified_scans ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+    if row is None:
+        return None
+    return {**json.loads(row["report"]), "id": row["id"], "observed_at": row["observed_at"]}

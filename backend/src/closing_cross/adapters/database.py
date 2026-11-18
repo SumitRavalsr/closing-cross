@@ -22,11 +22,17 @@ def connect(*, readonly: bool = False) -> Iterator[sqlite3.Connection]:
 
 def migrate() -> None:
     with connect() as connection:
+        connection.execute("BEGIN IMMEDIATE")
         current = connection.execute("PRAGMA user_version").fetchone()[0]
         for migration in sorted(MIGRATIONS.glob("*.sql")):
             version = int(migration.stem.split("_", maxsplit=1)[0])
             if version > current:
-                sql = migration.read_text(encoding="utf-8")
-                connection.executescript(
-                    f"BEGIN IMMEDIATE;\n{sql}\nPRAGMA user_version = {version};\nCOMMIT;"
-                )
+                pending = ""
+                for line in migration.read_text(encoding="utf-8").splitlines(keepends=True):
+                    pending += line
+                    if sqlite3.complete_statement(pending):
+                        connection.execute(pending)
+                        pending = ""
+                if pending.strip():
+                    raise sqlite3.OperationalError(f"Incomplete SQL in {migration.name}")
+                connection.execute(f"PRAGMA user_version = {version}")

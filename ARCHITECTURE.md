@@ -48,7 +48,7 @@ This is the target layout for the one-stock pilot. `AGENTS.md` at the repository
 
 - **Frontend** sends browser requests to same-origin `/api/` endpoints. Vite proxies these requests in development, and the production static server proxies them in production. Both proxies keep the `/api` prefix and use `http://api:8000` on the Compose network.
 - **API** serves scanner results from SQLite. It exposes health and readiness checks. Scheduled scans, ingestion, and replay run through the backend worker or CLI.
-- **Worker** will fetch and validate candles, call the shared strategy and portfolio logic, and commit each finalized session atomically. Keep a single scheduled writer per portfolio and enforce that boundary in the persistence layer. Replay and forward runs have separate portfolio identities. The scaffold worker loads a deterministic one-stock fixture on demand in either environment.
+- **Worker** can load the deterministic fixture or run a verified historical replay for one NSE equity on demand. It compares SmartAPI candles with the final NSE bhavcopy before running the shared crossover logic. Portfolio accounting and scheduled forward scans are separate milestones.
 - **Migration job** runs from the backend image before the API and worker start. A failed migration blocks those services. The migration job, API, and worker share a named SQLite volume at `/data`. Keep the database and SQLite journal files on that volume and use SQLite's backup API for consistent copies. Development and production use separate Compose project names and volumes.
 - **Domain logic** accepts explicit inputs and stays independent of FastAPI, SQLite, SmartAPI, scheduling, and the system clock. Browser traffic reaches the API through the frontend. SmartAPI credentials are required by the worker when it fetches broker data.
 
@@ -84,6 +84,21 @@ docker compose -p closing-cross-dev -f compose.dev.yaml run --rm --build worker
 - Run Uvicorn on `0.0.0.0:8000` with `--reload` and `--reload-dir /app/src`. Install the `watchfiles` backend dependency in the development group and set `WATCHFILES_FORCE_POLLING=true` in development for Docker Desktop bind mounts.
 - Run Vite on `0.0.0.0:5173` with React Fast Refresh. Set `server.watch.usePolling` in development for Docker Desktop bind mounts. Publish the frontend port on loopback and keep its HMR WebSocket reachable from the browser. Normal Python and React source edits take effect without rebuilding containers. Dependency changes require a rebuild or dependency refresh.
 - Open `http://127.0.0.1:5173` for the dashboard. The optional worker command loads two deterministic crossover rows. Reload the page to see them if it was open during the load.
+
+### Verified one-stock replay
+
+1. Fill `ANGEL_API_KEY`, `ANGEL_CLIENT_CODE`, `ANGEL_PIN`, and `ANGEL_TOTP_SECRET` in `backend/.env`. The secret is the authenticator setup key. A fresh `ANGEL_TOTP_CODE` can be used instead for manual login. Enter it immediately before running the worker and clear it afterwards. `PILOT_NSE_SYMBOL` defaults to `RELIANCE` and accepts a single cash symbol without the `-EQ` suffix. If your broker setup requires particular IP headers, set `ANGEL_LOCAL_IP` and `ANGEL_PUBLIC_IP` there too. The worker only calls SmartAPI login, instrument search, and daily candle read endpoints.
+2. Pick a completed NSE trading session with a published final bhavcopy and confirm the stock had no splits or bonus issues during the selected window. The default window is 101 calendar days ending on that session. Use `--start` to choose a different window with at least 51 trading sessions.
+3. From the repo root, run the following with the chosen session date. Add `--closed-on YYYY-MM-DD` for each missing weekday archive you have confirmed as an exchange holiday. An unexplained missing weekday, a missing target report, or a data mismatch stops the run. Archives published for weekend special sessions are included. Check the NSE calendar for any special sessions in the window when using local archives. [NSE daily reports](https://www.nseindia.com/all-reports/) · [NSE exchange calendar](https://www.nseindia.com/resources/exchange-communication-holidays) · [Angel One SmartAPI documentation](https://smartapi.angelone.in/docs)
+
+```sh
+docker compose -p closing-cross-dev -f compose.dev.yaml up --build --wait
+docker compose -p closing-cross-dev -f compose.dev.yaml run --rm --build worker closing-cross scan-nse --session YYYY-MM-DD --confirm-no-split-bonus
+```
+
+If the NSE download is unavailable, place the original `CM-UDiFF Common Bhavcopy Final` ZIP files in a subdirectory of `backend/` and add `--bhavcopy-dir /app/<directory>` to the worker command. For a standalone run with a local SQLite database, change into `backend/` and run `uv run --locked --env-file .env closing-cross scan-nse` with the same flags and a local directory path.
+
+The CLI reports the number of matching sessions, both SMAs, and the cross or absence of one on the target date. Open the dashboard or `GET /api/pilot/verified-scan` to inspect the run. Identical inputs reuse the same saved report. The report records exact OHLCV matches and raw-price replay signals. Select a different window when a split or bonus falls within the lookback.
 
 ### Production
 
