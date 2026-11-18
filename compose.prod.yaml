@@ -1,0 +1,53 @@
+x-backend: &backend
+  build:
+    context: ./backend
+    target: prod
+  environment:
+    DATABASE_PATH: /data/scanner.sqlite3
+  volumes:
+    - sqlite:/data
+
+services:
+  migrate:
+    <<: *backend
+    command: [closing-cross, migrate]
+
+  api:
+    <<: *backend
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: [CMD, python, -c, "from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/api/ready', timeout=2)"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  worker:
+    <<: *backend
+    profiles: [fixture]
+    env_file: ./backend/.env.production
+    command: [closing-cross, seed-fixture]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  frontend:
+    build:
+      context: ./frontend
+      target: prod
+    env_file: ./frontend/.env.production
+    ports: ["127.0.0.1:8080:8080"]
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD-SHELL, 'wget -q -O /dev/null "http://127.0.0.1:$${PORT}/api/ready"']
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  sqlite:

@@ -1,0 +1,61 @@
+x-backend: &backend
+  build:
+    context: ./backend
+    target: dev
+  environment:
+    DATABASE_PATH: /data/scanner.sqlite3
+  volumes:
+    - ./backend:/app
+    - sqlite:/data
+
+services:
+  migrate:
+    <<: *backend
+    command: [closing-cross, migrate]
+
+  api:
+    <<: *backend
+    environment:
+      DATABASE_PATH: /data/scanner.sqlite3
+      WATCHFILES_FORCE_POLLING: "true"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: [CMD, python, -c, "from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/api/ready', timeout=2)"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  worker:
+    <<: *backend
+    profiles: [fixture]
+    env_file: ./backend/.env
+    command: [closing-cross, seed-fixture]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  frontend:
+    build:
+      context: ./frontend
+      target: dev
+    env_file: ./frontend/.env
+    environment:
+      DEV_API_TARGET: http://api:8000
+    ports: ["127.0.0.1:5173:5173"]
+    volumes:
+      - ./frontend:/app
+      - node_modules:/app/node_modules
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:5173/api/ready').then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  sqlite:
+  node_modules:

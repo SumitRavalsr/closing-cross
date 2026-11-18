@@ -1,0 +1,15 @@
+[project]
+name = "closing-cross"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = ["fastapi>=0.115,<1", "uvicorn>=0.34,<1"]
+
+[dependency-groups]
+dev = ["pytest>=8,<10", "watchfiles>=1,<2", "httpx>=0.28,<1"]
+
+[project.scripts]
+closing-cross = "closing_cross.scanner:main"
+
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
