@@ -1,5 +1,7 @@
 # NSE closing crossover scanner build plan
 
+The live one-stock data check passed for `RELIANCE` with 57 verified sessions through 13 November 2026. The historical paper ledger is implemented. The saved-report check on the VPS and scheduled forward scans are pending. See [OPERATIONS.md](OPERATIONS.md) for the deployment workflow and pilot evidence. The 30-stock rollout stays gated on the remaining pilot tests below.
+
 Verify one NSE cash equity end to end, expand to a fixed 30-stock watchlist, then operate the full scanner unattended. A deterministic Python worker runs the same strategy for historical replay and forward scans. SQLite stores inputs and results, FastAPI exposes them, and React with TypeScript displays them. Angel One supplies candle data and can supply holdings through a separate optional refresh. The application exposes candle and holdings reads and hypothetical trades.
 
 ## 1. Freeze the pilot rules

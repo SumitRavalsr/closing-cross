@@ -1,6 +1,6 @@
 # Repository instructions
 
-This file applies to the whole repository. Use [ARCHITECTURE.md](ARCHITECTURE.md) for layout, service ownership, and Docker conventions. Use [BUILD_PLAN.md](BUILD_PLAN.md) for strategy rules, pilot acceptance checks, and the gate to expand to 30 stocks.
+This file applies to the whole repository. For a new chat or deployment task, start with [OPERATIONS.md](OPERATIONS.md) for the current pilot status, Windows and VPS workflow, and remaining work. Use [ARCHITECTURE.md](ARCHITECTURE.md) for layout, service ownership, and Docker conventions. Use [BUILD_PLAN.md](BUILD_PLAN.md) for strategy rules, pilot acceptance checks, and the gate to expand to 30 stocks.
 
 ## Working in the monorepo
 

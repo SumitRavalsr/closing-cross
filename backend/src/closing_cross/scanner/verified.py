@@ -7,7 +7,9 @@ from decimal import Decimal
 from closing_cross.adapters.angel import IST, SmartAPI
 from closing_cross.adapters.bhavcopy import Bhavcopy
 from closing_cross.adapters.database import connect
+from closing_cross.adapters.paper import save_ledger
 from closing_cross.domain.candles import FIELDS, Candle, DataError
+from closing_cross.domain.paper import PaperSession, PaperTerms, build_ledger
 from closing_cross.domain.strategy import crossover, moving_averages
 
 
@@ -83,10 +85,19 @@ def validate_range(symbol: str, start: date, end: date, closures: set[date]) -> 
         raise DataError('Each declared exchange closure must be within the lookback and before the target')
 
 
-def save_report(report: dict) -> dict:
+def verified_ledger(report: dict, terms: PaperTerms) -> dict:
+    sessions = [
+        PaperSession(row['session'], Decimal(row['open']), Decimal(row['close']), row['cross'])
+        for row in report['candles']
+    ]
+    return {'symbol': report['symbol'], 'strategy': report['strategy'], **build_ledger(sessions, terms)}
+
+
+def save_report(report: dict, terms: PaperTerms) -> dict:
     encoded = json.dumps(report, sort_keys=True, separators=(',', ':'))
     digest = hashlib.sha256(encoded.encode('utf-8')).hexdigest()
     observed = datetime.now(timezone.utc).isoformat()
+    ledger = verified_ledger(report, terms)
     with connect() as connection:
         connection.execute(
             'INSERT INTO verified_scans (input_hash, observed_at, report) VALUES (?, ?, ?) '
@@ -95,4 +106,13 @@ def save_report(report: dict) -> dict:
         row = connection.execute(
             'SELECT id, observed_at FROM verified_scans WHERE input_hash = ?', (digest,),
         ).fetchone()
-    return {**report, 'id': row['id'], 'observed_at': row['observed_at']}
+        ledger_id = save_ledger(connection, ledger, row['id'])
+    return {**report, 'id': row['id'], 'observed_at': row['observed_at'], 'paper_ledger_id': ledger_id}
+
+
+def build_latest_ledger(terms: PaperTerms) -> int:
+    with connect() as connection:
+        row = connection.execute('SELECT id, report FROM verified_scans ORDER BY id DESC LIMIT 1').fetchone()
+        if row is None:
+            raise DataError('No saved verified NSE scan is available')
+        return save_ledger(connection, verified_ledger(json.loads(row['report']), terms), row['id'])

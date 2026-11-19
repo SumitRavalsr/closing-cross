@@ -10,7 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from closing_cross.adapters.angel import HISTORY, LOGIN, SEARCH
-from closing_cross.adapters.database import migrate
+from closing_cross.adapters.database import connect, migrate
 from closing_cross.api import app
 from closing_cross.scanner import main
 
@@ -89,13 +89,14 @@ def test_verified_cli_to_api(tmp_path, monkeypatch, capsys, problem):
                 assert failure.value.code == 1
             else:
                 main()
-                first_id = json.loads(capsys.readouterr().out)['id']
+                first = json.loads(capsys.readouterr().out)
                 main()
         assert calls[:3] == [LOGIN, SEARCH, HISTORY]
         report = api.get('/api/pilot/verified-scan').json()
         captured = capsys.readouterr()
         if problem in {'price', 'missing_broker', 'missing_both'}:
             assert report is None
+            assert api.get('/api/pilot/paper-ledgers').json() == []
             assert str(selected) in captured.err
             assert 'test-token' not in captured.err and 'test-api-key' not in captured.err
         else:
@@ -103,4 +104,20 @@ def test_verified_cli_to_api(tmp_path, monkeypatch, capsys, problem):
             assert report['candles'][-1]['cross'] == 'down'
             if not problem:
                 assert report['candles'][-2]['cross'] == 'up'
-            assert first_id == json.loads(captured.out)['id'] == report['id']
+            second = json.loads(captured.out)
+            assert first == second
+            assert first['id'] == report['id']
+            ledger, = api.get('/api/pilot/paper-ledgers').json()
+            assert ledger['id'] == first['paper_ledger_id']
+            assert ledger['source_scan_id'] == report['id']
+            assert ledger['symbol'] == 'RELIANCE'
+
+            with connect() as connection:
+                assert connection.execute('SELECT COUNT(*) FROM paper_ledgers').fetchone()[0] == 1
+                connection.execute('DELETE FROM paper_ledgers')
+
+            monkeypatch.setattr(sys, 'argv', ['closing-cross', 'paper-ledger'])
+            main()
+            restored, = api.get('/api/pilot/paper-ledgers').json()
+            assert restored['fills'] == ledger['fills']
+            assert restored['summary'] == ledger['summary']

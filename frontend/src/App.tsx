@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react'
+import PaperLedgerPanel from './PaperLedger'
+import { loadPaperLedgers, type PaperLedger } from './api/paper'
 import { loadSignals, loadVerifiedScan, type PilotSignal, type VerifiedScan } from './api/signals'
 
 export default function App() {
@@ -6,6 +8,8 @@ export default function App() {
   const [error, setError] = useState(false)
   const [scan, setScan] = useState<VerifiedScan | null>(null)
   const [scanError, setScanError] = useState(false)
+  const [ledgers, setLedgers] = useState<PaperLedger[] | null>(null)
+  const [ledgerError, setLedgerError] = useState(false)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -14,6 +18,9 @@ export default function App() {
     })
     loadVerifiedScan(controller.signal).then(setScan).catch(() => {
       if (!controller.signal.aborted) setScanError(true)
+    })
+    loadPaperLedgers(controller.signal).then(setLedgers).catch(() => {
+      if (!controller.signal.aborted) setLedgerError(true)
     })
     return () => controller.abort()
   }, [])
@@ -41,6 +48,9 @@ export default function App() {
           </table>
         </section>
       )}
+      {ledgerError && <p role="alert">Could not load the paper trade ledgers.</p>}
+      {ledgers?.length === 0 && <p>No paper trade ledger has been saved yet.</p>}
+      {ledgers?.map((ledger) => <PaperLedgerPanel key={ledger.id} ledger={ledger} />)}
       <section aria-labelledby="signals-heading">
         <h2 id="signals-heading">Fixture signals</h2>
         {error && <p role="alert">Could not load pilot signals.</p>}

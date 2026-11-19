@@ -2,6 +2,8 @@
 
 The FastAPI backend, React frontend, and scanner worker live in one Git repository. The backend uses uv and owns the strategy, broker integration, and SQLite database. The frontend accesses results through the API. Two standalone Docker Compose files define development and production.
 
+See [OPERATIONS.md](OPERATIONS.md) for the active Windows and Ubuntu VPS setup, deployment commands, SSH tunnel, and live pilot status.
+
 ## Repository layout
 
 This is the target layout for the one-stock pilot. `AGENTS.md` at the repository root applies to both applications.
@@ -11,6 +13,7 @@ This is the target layout for the one-stock pilot. `AGENTS.md` at the repository
 ├── AGENTS.md
 ├── ARCHITECTURE.md
 ├── BUILD_PLAN.md
+├── OPERATIONS.md
 ├── .gitignore
 ├── compose.dev.yaml
 ├── compose.prod.yaml
@@ -48,7 +51,7 @@ This is the target layout for the one-stock pilot. `AGENTS.md` at the repository
 
 - **Frontend** sends browser requests to same-origin `/api/` endpoints. Vite proxies these requests in development, and the production static server proxies them in production. Both proxies keep the `/api` prefix and use `http://api:8000` on the Compose network.
 - **API** serves scanner results from SQLite. It exposes health and readiness checks. Scheduled scans, ingestion, and replay run through the backend worker or CLI.
-- **Worker** can load the deterministic fixture or run a verified historical replay for one NSE equity on demand. It compares SmartAPI candles with the final NSE bhavcopy before running the shared crossover logic. Portfolio accounting and scheduled forward scans are separate milestones.
+- **Worker** can load the deterministic fixture or run a verified historical replay for one NSE equity on demand. It compares SmartAPI candles with the final NSE bhavcopy before running the shared crossover logic and paper ledger. Scheduled forward scans are a separate milestone.
 - **Migration job** runs from the backend image before the API and worker start. A failed migration blocks those services. The migration job, API, and worker share a named SQLite volume at `/data`. Keep the database and SQLite journal files on that volume and use SQLite's backup API for consistent copies. Development and production use separate Compose project names and volumes.
 - **Domain logic** accepts explicit inputs and stays independent of FastAPI, SQLite, SmartAPI, scheduling, and the system clock. Browser traffic reaches the API through the frontend. SmartAPI credentials are required by the worker when it fetches broker data.
 
@@ -87,6 +90,8 @@ docker compose -p closing-cross-dev -f compose.dev.yaml run --rm --build worker
 
 ### Verified one-stock replay
 
+The live pilot runs on the VPS using `compose.prod.yaml` and `backend/.env.production`. Follow the [VPS runbook](OPERATIONS.md#run-and-inspect-the-live-pilot). The development examples below apply to a machine with SmartAPI access from its own registered network.
+
 1. Fill `ANGEL_API_KEY`, `ANGEL_CLIENT_CODE`, `ANGEL_PIN`, and `ANGEL_TOTP_SECRET` in `backend/.env`. The secret is the authenticator setup key. A fresh `ANGEL_TOTP_CODE` can be used instead for manual login. Enter it immediately before running the worker and clear it afterwards. `PILOT_NSE_SYMBOL` defaults to `RELIANCE` and accepts a single cash symbol without the `-EQ` suffix. If your broker setup requires particular IP headers, set `ANGEL_LOCAL_IP` and `ANGEL_PUBLIC_IP` there too. The worker only calls SmartAPI login, instrument search, and daily candle read endpoints.
 2. Pick a completed NSE trading session with a published final bhavcopy and confirm the stock had no splits or bonus issues during the selected window. The default window is 101 calendar days ending on that session. Use `--start` to choose a different window with at least 51 trading sessions.
 3. From the repo root, run the following with the chosen session date. Add `--closed-on YYYY-MM-DD` for each missing weekday archive you have confirmed as an exchange holiday. An unexplained missing weekday, a missing target report, or a data mismatch stops the run. Archives published for weekend special sessions are included. Check the NSE calendar for any special sessions in the window when using local archives. [NSE daily reports](https://www.nseindia.com/all-reports/) · [NSE exchange calendar](https://www.nseindia.com/resources/exchange-communication-holidays) · [Angel One SmartAPI documentation](https://smartapi.angelone.in/docs)
@@ -100,6 +105,12 @@ If the NSE download is unavailable, place the original `CM-UDiFF Common Bhavcopy
 
 The CLI reports the number of matching sessions, both SMAs, and the cross or absence of one on the target date. Open the dashboard or `GET /api/pilot/verified-scan` to inspect the run. Identical inputs reuse the same saved report. The report records exact OHLCV matches and raw-price replay signals. Select a different window when a split or bonus falls within the lookback.
 
+### Paper trade ledger
+
+After verifying candles, the worker saves an immutable, one-stock historical ledger alongside the report in the same SQLite transaction. Identical runs reuse the saved ledger. Fixture and verified ledgers are stored independently and exposed via `GET /api/pilot/paper-ledgers`. `closing-cross paper-ledger` builds accounting from the latest saved verified scan, including reports created before the ledger migration.
+
+Each replay starts flat with an independent cash balance. Use `PAPER_OPENING_CASH`, `PAPER_ALLOCATION`, `PAPER_FEE`, and `PAPER_SLIPPAGE_PER_SHARE` in the worker's backend env file to configure INR amounts. Defaults are ₹1,000 cash, ₹1,000 per position, ₹2 per fill, and ₹1 per share adverse slippage. The fixture always uses those values. Fills use the next verified session's open, adjusted for slippage and rounded to the paise against the trade. Closing equity is rounded half up to the paise. P&L reflects price changes, fees, and slippage. Dividend accounting and scheduled forward positions remain future work.
+
 ### Production
 
 ```sh
@@ -107,7 +118,7 @@ docker compose -p closing-cross-prod -f compose.prod.yaml up --build --wait
 docker compose -p closing-cross-prod -f compose.prod.yaml run --rm --build worker
 ```
 
-Production Compose uses immutable images, ordinary Uvicorn, and the built static frontend. The local production smoke test uses `http://127.0.0.1:8080`. For deployment, route the frontend through the deployment's HTTPS entry point. The API and migration job stay on the private Compose network. Source bind mounts, file watchers, and HMR are development-only.
+Production Compose uses immutable images, ordinary Uvicorn, and the built static frontend. The VPS publishes the frontend on `127.0.0.1:8080`. Access it from the laptop through the SSH tunnel in [OPERATIONS.md](OPERATIONS.md#run-and-inspect-the-live-pilot). The API and migration job stay on the private Compose network. Source bind mounts, file watchers, and HMR are development-only.
 
 ## Container acceptance checks
 

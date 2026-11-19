@@ -6,6 +6,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from closing_cross.adapters.database import connect
+from closing_cross.adapters.paper import latest_ledgers
 
 app = FastAPI(title="Closing Cross Pilot")
 
@@ -27,6 +28,7 @@ def ready() -> dict[str, str]:
         with connect(readonly=True) as connection:
             connection.execute("SELECT 1 FROM pilot_signals LIMIT 1").fetchone()
             connection.execute("SELECT 1 FROM verified_scans LIMIT 1").fetchone()
+            connection.execute("SELECT 1 FROM paper_ledgers LIMIT 1").fetchone()
     except sqlite3.Error as error:
         raise HTTPException(503, "Pilot database is unavailable") from error
     return {"status": "ready"}
@@ -50,3 +52,8 @@ def verified_scan() -> dict | None:
     if row is None:
         return None
     return {**json.loads(row["report"]), "id": row["id"], "observed_at": row["observed_at"]}
+
+
+@app.get("/api/pilot/paper-ledgers")
+def paper_ledgers() -> list[dict]:
+    return latest_ledgers()
