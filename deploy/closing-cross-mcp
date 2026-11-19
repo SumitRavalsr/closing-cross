@@ -1,0 +1,30 @@
+#!/bin/bash
+set -euo pipefail
+umask 077
+(( $# == 0 )) || exit 2
+
+cd /root/closing-cross-git
+config=/etc/closing-cross/mcp.env
+if [[ ! -r "$config" ]]; then
+    config=/dev/null
+fi
+
+runtime=/run/closing-cross-mcp
+/usr/bin/install -d -m 0700 "$runtime"
+exec 9>"$runtime/session.lock"
+if ! /usr/bin/flock -n 9; then
+    echo "A Closing Cross broker session is already active." >&2
+    exit 1
+fi
+
+session=$(/usr/bin/mktemp -d "$runtime/session.XXXXXXXX")
+credential="$session/angel.json"
+trap '/usr/bin/rm -f -- "$credential"; /usr/bin/rmdir -- "$session"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM HUP
+/usr/bin/systemd-creds decrypt --name=angel.json /etc/closing-cross/angel.json.cred "$credential" </dev/null >&2
+/usr/bin/chgrp 65532 "$credential"
+/usr/bin/chmod 0440 "$credential"
+
+/usr/bin/docker compose --env-file "$config" -p closing-cross-prod -f compose.prod.yaml \
+    run --rm -T --pull never --volume "$credential:/run/angel.json:ro" mcp
