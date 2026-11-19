@@ -51,7 +51,7 @@ This is the target layout for the one-stock pilot. `AGENTS.md` at the repository
 
 - **Frontend** sends browser requests to same-origin `/api/` endpoints. Vite proxies these requests in development, and the production static server proxies them in production. Both proxies keep the `/api` prefix and use `http://api:8000` on the Compose network.
 - **API** serves scanner results from SQLite. It exposes health and readiness checks. Scheduled scans, ingestion, and replay run through the backend worker or CLI.
-- **Worker** can load the deterministic fixture or run a verified historical replay for one NSE equity on demand. It compares SmartAPI candles with the final NSE bhavcopy before running the shared crossover logic and paper ledger. Scheduled forward scans are a separate milestone.
+- **Worker** can load the deterministic fixture, run a verified historical replay, or advance the one-stock forward portfolio. It compares SmartAPI candles with final NSE bhavcopy before running the shared crossover and paper accounting logic.
 - **Migration job** runs from the backend image before the API and worker start. A failed migration blocks those services. The migration job, API, and worker share a named SQLite volume at `/data`. Keep the database and SQLite journal files on that volume and use SQLite's backup API for consistent copies. Development and production use separate Compose project names and volumes.
 - **Domain logic** accepts explicit inputs and stays independent of FastAPI, SQLite, SmartAPI, scheduling, and the system clock. Browser traffic reaches the API through the frontend. SmartAPI credentials are required by the worker when it fetches broker data.
 
@@ -109,7 +109,11 @@ The CLI reports the number of matching sessions, both SMAs, and the cross or abs
 
 After verifying candles, the worker saves an immutable, one-stock historical ledger alongside the report in the same SQLite transaction. Identical runs reuse the saved ledger. Fixture and verified ledgers are stored independently and exposed via `GET /api/pilot/paper-ledgers`. `closing-cross paper-ledger` builds accounting from the latest saved verified scan, including reports created before the ledger migration.
 
-Each replay starts flat with an independent cash balance. Use `PAPER_OPENING_CASH`, `PAPER_ALLOCATION`, `PAPER_FEE`, and `PAPER_SLIPPAGE_PER_SHARE` in the worker's backend env file to configure INR amounts. Defaults are ₹1,000 cash, ₹1,000 per position, ₹2 per fill, and ₹1 per share adverse slippage. The fixture always uses those values. Fills use the next verified session's open, adjusted for slippage and rounded to the paise against the trade. Closing equity is rounded half up to the paise. P&L reflects price changes, fees, and slippage. Dividend accounting and scheduled forward positions remain future work.
+Each replay starts flat with an independent cash balance. Use `PAPER_OPENING_CASH`, `PAPER_ALLOCATION`, `PAPER_FEE`, and `PAPER_SLIPPAGE_PER_SHARE` in the worker's backend env file to configure INR amounts. Defaults are ₹1,000 cash, ₹1,000 per position, ₹2 per fill, and ₹1 per share adverse slippage. The fixture always uses those values. Fills use the next verified session's open, adjusted for slippage and rounded to the paise against the trade. Closing equity is rounded half up to the paise. P&L currently reflects price changes, fees, and slippage.
+
+### Forward pilot
+
+`forward-init` creates an independent flat paper portfolio from the last 50 verified closes. `forward-scan` fetches only due, uncommitted dates and uses the reviewed CSV calendar for open and publication-check times. Each completed session saves its verified OHLCV, observation time, calendar hash, and paper events in the same transaction as the position update. Duplicate commits reuse the existing session. The forward position locks the initial paper terms at initialization. The VPS systemd timer invokes the production worker without enabling a persistent scanner container. [Forward pilot runbook](OPERATIONS.md#continue-the-one-stock-pilot)
 
 ### Production
 

@@ -90,6 +90,53 @@ Refresh the tunnel dashboard to see **RELIANCE · Paper trade ledger**. Subseque
 
 ## Continue the one-stock pilot
 
-1. **Verify the ledger on the VPS.** Build a ledger for the saved `RELIANCE` report and check the dashboard through the tunnel. The ₹1,000 to ₹804 fixture also exercises the completed round trip and rerun locally.
-2. **Add scheduled forward scans.** Validate final candle timing, missed runs, authentication recovery, idempotency, and after-open signal behavior on the VPS.
-3. **Expand to 30 only after the one-stock gate passes.** Keep the read-only broker boundary and verify the shared-cash and partial-data cases before turning on the expanded schedule.
+The saved `RELIANCE` paper ledger worked on the VPS. Deploy the forward pilot, run a scheduled session manually first, and then enable the timer. Record three consecutive automatic NSE sessions, including login after midnight, before expanding the watchlist.
+
+### Prepare the calendar and seed
+
+1. Create `/etc/closing-cross/nse-sessions.csv` on the VPS. List every cash-market trading session in order, from the seed date to at least one session past the intended scan window. Use exchange-local times. Omit holidays and include special trading days with their actual opening time. `ready` is the earliest time to check for the final bhavcopy. Use `18:00` for the normal pilot schedule and review special-day timing separately. Keep the last committed session in the file when extending it. [NSE market timings and holidays](https://www.nseindia.com/resources/exchange-communication-holidays)
+2. Run `scan-nse` on the VPS through the **trading session immediately before** the desired first forward session. The latest saved report for `RELIANCE` must end on that preceding session. Initialization takes the last 50 closes from the verified report and opens a new flat paper position with the configured cash and costs.
+3. Review splits and bonuses for the symbol through your intended operating window. Set `FORWARD_ACTIONS_REVIEWED_THROUGH=YYYY-MM-DD` in `backend/.env.production` to the last reviewed date. Use `ANGEL_TOTP_SECRET` for unattended login and leave the manual `ANGEL_TOTP_CODE` empty. The worker stops at the reviewed cutoff or on a missing, mismatched, or zero-volume candle.
+
+The file format below shows the seed and two trading sessions. Extend it with reviewed upcoming dates before enabling the schedule:
+
+```csv
+session,open,ready
+2026-11-19,09:15,18:00
+2026-11-20,09:15,18:00
+2026-11-23,09:15,18:00
+```
+
+### Run manually before scheduling
+
+After deploying, run these commands on the VPS from `~/closing-cross-git`. Replace `YYYY-MM-DD` with your chosen first forward session. Run the scan after that session's `ready` time.
+
+```bash
+sudo docker compose -p closing-cross-prod -f compose.prod.yaml --profile fixture build worker
+sudo docker compose -p closing-cross-prod -f compose.prod.yaml run --rm --no-deps \
+  -v /etc/closing-cross/nse-sessions.csv:/config/nse-sessions.csv:ro worker \
+  closing-cross forward-init --calendar /config/nse-sessions.csv --session YYYY-MM-DD
+sudo docker compose -p closing-cross-prod -f compose.prod.yaml run --rm --no-deps \
+  -v /etc/closing-cross/nse-sessions.csv:/config/nse-sessions.csv:ro worker \
+  closing-cross forward-scan --calendar /config/nse-sessions.csv --session YYYY-MM-DD
+```
+
+Expect `"processed": 1` for the first complete run. Rerun the scan and expect `"processed": 0` with status `idle`. The **Forward paper pilot** section shows the last attempt, latest finalized session, pending trade, and portfolio marks. Check it through the existing SSH tunnel. `GET /api/pilot/forward` returns the same status with signal observation and fill details. Failed attempts stay in SQLite, and a session still outstanding 30 minutes after its expected check is marked overdue.
+
+### Enable the VPS timer
+
+After the manual run passes, install the supplied systemd units. The service assumes Docker is at `/usr/bin/docker` and the repository is in `/root/closing-cross-git`. Adjust the unit if your paths differ. On later deploys rebuild the `worker` image too.
+
+```bash
+sudo install -m 0644 deploy/closing-cross-forward.service /etc/systemd/system/
+sudo install -m 0644 deploy/closing-cross-forward.timer /etc/systemd/system/
+sudo systemd-analyze verify /etc/systemd/system/closing-cross-forward.{service,timer}
+sudo systemctl daemon-reload
+sudo systemctl enable --now closing-cross-forward.timer
+systemctl list-timers closing-cross-forward.timer
+sudo journalctl -u closing-cross-forward.service -n 50 --no-pager
+```
+
+The timer checks at 18:00, 19:00 and 21:00 IST. On failure, systemd retries after ten minutes, limited to three starts per 45-minute window. The worker picks up due, uncommitted sessions in date order. On a missed run, a late entry is skipped and an overdue exit targets a future opening. A fill already queued before its target open can still be resolved once the matching candle arrives. [systemd service restart rules](https://freedesktop.org/software/systemd/man/latest/systemd.service.html)
+
+The forward pilot keeps a verified close window rather than downloading the full historical window on every run. It pauses for zero-volume or absent candles. Automated confirmation of no-trade sessions and reconciliation of historical data corrections are still outside this implementation. Keep one stock until the remaining [pilot acceptance checks](BUILD_PLAN.md#3-one-stock-acceptance-tests) pass.

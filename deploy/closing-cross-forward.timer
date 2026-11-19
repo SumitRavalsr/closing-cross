@@ -1,0 +1,11 @@
+[Unit]
+Description=Check for finalized NSE sessions after market hours
+
+[Timer]
+OnCalendar=*-*-* 18:00:00 Asia/Kolkata
+OnCalendar=*-*-* 19:00:00 Asia/Kolkata
+OnCalendar=*-*-* 21:00:00 Asia/Kolkata
+Persistent=true
+
+[Install]
+WantedBy=timers.target

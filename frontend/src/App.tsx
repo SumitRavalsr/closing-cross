@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import ForwardPilot from './ForwardPilot'
 import PaperLedgerPanel from './PaperLedger'
 import { loadPaperLedgers, type PaperLedger } from './api/paper'
 import { loadSignals, loadVerifiedScan, type PilotSignal, type VerifiedScan } from './api/signals'
@@ -28,6 +29,7 @@ export default function App() {
   return (
     <main>
       <h1>Closing Cross Pilot</h1>
+      <ForwardPilot />
       {scanError && <p role="alert">Could not load the verified NSE scan.</p>}
       {scan && (
         <section aria-labelledby="verified-heading">

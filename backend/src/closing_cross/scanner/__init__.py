@@ -15,6 +15,7 @@ from closing_cross.adapters.paper import save_ledger
 from closing_cross.domain.candles import DataError
 from closing_cross.domain.paper import PaperSession, PaperTerms, build_ledger
 from closing_cross.domain.strategy import crossover
+from closing_cross.scanner.forward import initialize, run_forward
 from closing_cross.scanner.verified import build_latest_ledger, save_report, validate_range, verify_and_scan
 from closing_cross.settings import paper_terms
 
@@ -46,6 +47,12 @@ def main() -> None:
     commands.add_parser("migrate")
     commands.add_parser("seed-fixture")
     commands.add_parser("paper-ledger", help="Build paper accounting for the latest saved verified scan")
+    forward_init = commands.add_parser("forward-init", help="Start a flat forward portfolio from a verified seed")
+    forward_init.add_argument("--calendar", type=Path, required=True)
+    forward_init.add_argument("--session", type=date.fromisoformat, required=True, help="First forward session")
+    forward_scan = commands.add_parser("forward-scan", help="Process due forward sessions in calendar order")
+    forward_scan.add_argument("--calendar", type=Path, required=True)
+    forward_scan.add_argument("--session", type=date.fromisoformat, help="Optional last session to process")
     scan = commands.add_parser("scan-nse", help="Verify and replay one NSE EQ stock")
     scan.add_argument("--session", type=date.fromisoformat, required=True, help="Final NSE session, YYYY-MM-DD")
     scan.add_argument("--start", type=date.fromisoformat, help="First date to verify, defaults to a 101-day window")
@@ -66,6 +73,21 @@ def main() -> None:
             print(json.dumps({"paper_ledger_id": build_latest_ledger(terms)}))
         except DataError as error:
             parser.exit(1, f"Paper ledger stopped. {error}\n")
+    elif arguments.command in {"forward-init", "forward-scan"}:
+        try:
+            migrate()
+            if arguments.command == "forward-init":
+                symbol = os.environ.get("PILOT_NSE_SYMBOL", "RELIANCE").strip().upper()
+                result = initialize(arguments.calendar, arguments.session, paper_terms(), symbol)
+            else:
+                try:
+                    reviewed = date.fromisoformat(os.environ.get("FORWARD_ACTIONS_REVIEWED_THROUGH", ""))
+                except ValueError:
+                    raise DataError("Set FORWARD_ACTIONS_REVIEWED_THROUGH to the last reviewed NSE date") from None
+                result = run_forward(arguments.calendar, reviewed, arguments.session)
+            print(json.dumps(result, indent=2))
+        except (DataError, OSError) as error:
+            parser.exit(1, f"Forward scan stopped. {error}\n")
     else:
         try:
             terms = paper_terms()

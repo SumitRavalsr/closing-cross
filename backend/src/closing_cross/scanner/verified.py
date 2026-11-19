@@ -41,15 +41,7 @@ def verify_and_scan(
             continue
         if session in closures:
             raise DataError(f'NSE published a trading session for declared closure {session}')
-        if actual is None:
-            raise DataError(f'SmartAPI is missing the NSE trading session {session}')
-        differences = [
-            f'{field} SmartAPI={getattr(actual, field)} NSE={getattr(reference, field)}'
-            for field in FIELDS if getattr(actual, field) != getattr(reference, field)
-        ]
-        if differences:
-            raise DataError(f'{symbol}-EQ mismatch on {session}: {", ".join(differences)}')
-        verified.append(actual)
+        verified.append(match_candle(actual, reference, symbol, session))
     if unknown_dates:
         raise DataError('Missing NSE weekday archives for ' + ', '.join(unknown_dates)
                         + '. Supply the reports or use --closed-on for confirmed NSE holidays.')
@@ -74,6 +66,18 @@ def verify_and_scan(
         'verified_sessions': len(rows), 'confirmed_closures': sorted(d.isoformat() for d in closures),
         'candles': rows,
     }
+
+
+def match_candle(actual: Candle | None, reference: Candle, symbol: str, session: date) -> Candle:
+    if actual is None:
+        raise DataError(f'SmartAPI is missing the NSE trading session {session}')
+    differences = [
+        f'{field} SmartAPI={getattr(actual, field)} NSE={getattr(reference, field)}'
+        for field in FIELDS if getattr(actual, field) != getattr(reference, field)
+    ]
+    if differences:
+        raise DataError(f'{symbol}-EQ mismatch on {session}: {", ".join(differences)}')
+    return actual
 
 
 def validate_range(symbol: str, start: date, end: date, closures: set[date]) -> None:

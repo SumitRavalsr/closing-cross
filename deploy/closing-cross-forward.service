@@ -1,0 +1,15 @@
+[Unit]
+Description=Closing Cross one-stock forward scan
+Wants=network-online.target
+After=network-online.target docker.service
+Requires=docker.service
+StartLimitIntervalSec=45min
+StartLimitBurst=3
+
+[Service]
+Type=oneshot
+WorkingDirectory=/root/closing-cross-git
+ExecStart=/usr/bin/docker compose -p closing-cross-prod -f compose.prod.yaml run --rm --no-deps -v /etc/closing-cross/nse-sessions.csv:/config/nse-sessions.csv:ro worker closing-cross forward-scan --calendar /config/nse-sessions.csv
+TimeoutStartSec=10min
+Restart=on-failure
+RestartSec=10min
