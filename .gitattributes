@@ -1,2 +1,3 @@
 deploy/closing-cross-mcp eol=lf
+deploy/closing-cross-mcp.service eol=lf
 deploy/provision-angel-credentials eol=lf

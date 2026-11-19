@@ -1,0 +1,23 @@
+[Unit]
+Description=Shared private Angel One MCP container
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/root/closing-cross-git
+EnvironmentFile=-/etc/closing-cross/mcp.env
+LoadCredentialEncrypted=angel.json:/etc/closing-cross/angel.json.cred
+RuntimeDirectory=closing-cross-mcp-service
+RuntimeDirectoryMode=0711
+ExecStartPre=/usr/bin/install -d -o 65532 -g closing-mcp -m 2750 /run/closing-cross-mcp-service/socket
+ExecStartPre=/usr/bin/install -d -o root -g root -m 0700 /run/closing-cross-mcp-service/credentials
+ExecStartPre=/usr/bin/install -o root -g 65532 -m 0440 %d/angel.json /run/closing-cross-mcp-service/credentials/angel.json
+ExecStart=/usr/bin/docker compose --env-file /dev/null -p closing-cross-prod -f compose.prod.yaml up --detach --no-build --pull never --wait --wait-timeout 30 mcp
+ExecStopPost=/usr/bin/docker compose --env-file /dev/null -p closing-cross-prod -f compose.prod.yaml stop mcp
+TimeoutStartSec=60
+
+[Install]
+WantedBy=multi-user.target

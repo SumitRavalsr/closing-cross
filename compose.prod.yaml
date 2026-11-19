@@ -3,15 +3,34 @@ services:
     build:
       context: .
       target: prod
-    profiles: [mcp]
+    command: [angel-one-mcp, --socket, /run/mcp/mcp.sock]
     environment:
       ANGEL_CREDENTIALS_FILE: /run/angel.json
       ANGEL_LOCAL_IP: ${ANGEL_LOCAL_IP:-127.0.0.1}
       ANGEL_PUBLIC_IP: ${ANGEL_PUBLIC_IP:-127.0.0.1}
     user: "65532:65532"
+    init: true
     read_only: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
+    volumes:
+      - type: bind
+        source: /run/closing-cross-mcp-service/socket
+        target: /run/mcp
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /run/closing-cross-mcp-service/credentials/angel.json
+        target: /run/angel.json
+        read_only: true
+        bind:
+          create_host_path: false
+    restart: on-failure
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s = socket.socket(socket.AF_UNIX); s.settimeout(2); s.connect('/run/mcp/mcp.sock'); s.close()"]
+      interval: 5s
+      timeout: 3s
+      retries: 4
     pids_limit: 32
     mem_limit: 512m
     logging:
