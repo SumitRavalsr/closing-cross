@@ -1,0 +1,21 @@
+[project]
+name = "angel-one-mcp"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "httpx>=0.28,<1",
+    "pydantic>=2.11,<3",
+    "pyotp>=2.9,<3",
+    "tzdata>=2025.2",
+    "mcp>=1.28,<2",
+]
+
+[dependency-groups]
+dev = ["pytest>=8,<10"]
+
+[project.scripts]
+angel-one-mcp = "angel_one_mcp.server:main"
+
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"

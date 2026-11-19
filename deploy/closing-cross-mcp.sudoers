@@ -1,0 +1,1 @@
+closing-mcp ALL=(root) NOPASSWD: NOSETENV: /usr/local/sbin/closing-cross-mcp ""
