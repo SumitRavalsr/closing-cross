@@ -80,11 +80,11 @@ def match_candle(actual: Candle | None, reference: Candle, symbol: str, session:
     return actual
 
 
-def validate_range(symbol: str, start: date, end: date, closures: set[date]) -> None:
+def validate_range(symbol: str, start: date, end: date, closures: set[date], *, max_days: int = 366) -> None:
     if not re.fullmatch(r'[A-Z0-9&-]{1,24}', symbol) or symbol.endswith('-EQ'):
         raise DataError('Configure one NSE cash symbol without the -EQ series suffix')
-    if not 50 <= (end - start).days <= 365 or end > datetime.now(IST).date():
-        raise DataError('Choose an NSE session through today and a 51-366 calendar-day inclusive range')
+    if not 51 <= (end - start).days + 1 <= max_days or end > datetime.now(IST).date():
+        raise DataError(f'Choose an NSE session through today and a 51-{max_days} calendar-day inclusive range')
     if any(not start <= day < end for day in closures):
         raise DataError('Each declared exchange closure must be within the lookback and before the target')
 

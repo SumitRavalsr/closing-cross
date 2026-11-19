@@ -5,6 +5,7 @@ from typing import Literal
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
+from closing_cross.adapters.backtest import latest_backtest
 from closing_cross.adapters.database import connect
 from closing_cross.adapters.forward import status as forward_status
 from closing_cross.adapters.paper import latest_ledgers
@@ -31,6 +32,7 @@ def ready() -> dict[str, str]:
             connection.execute("SELECT 1 FROM verified_scans LIMIT 1").fetchone()
             connection.execute("SELECT 1 FROM paper_ledgers LIMIT 1").fetchone()
             connection.execute("SELECT 1 FROM forward_portfolio LIMIT 1").fetchone()
+            connection.execute("SELECT 1 FROM backtests LIMIT 1").fetchone()
     except sqlite3.Error as error:
         raise HTTPException(503, "Pilot database is unavailable") from error
     return {"status": "ready"}
@@ -64,3 +66,8 @@ def paper_ledgers() -> list[dict]:
 @app.get("/api/pilot/forward")
 def forward() -> dict:
     return forward_status()
+
+
+@app.get("/api/pilot/backtest")
+def historical_backtest() -> dict | None:
+    return latest_backtest()

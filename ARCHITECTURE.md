@@ -1,6 +1,6 @@
 # NSE scanner architecture
 
-The FastAPI backend, React frontend, and scanner worker live in one Git repository. The backend uses uv and owns the strategy, broker integration, and SQLite database. The frontend accesses results through the API. Two standalone Docker Compose files define development and production.
+The FastAPI backend, React frontend, and scanner worker live in one Git repository. The backend uses uv and owns the strategy, broker integration, and SQLite database. The frontend accesses results through the API. Two standalone Docker Compose files define development and production. The dashboard presents the latest historical backtest from `GET /api/pilot/backtest`, including shared-cash watchlists of 30–50 companies. Portfolio reports store official Nifty 50 closing index values alongside daily strategy equity and use them for the same-session return and drawdown comparison. The forward pilot is paused.
 
 See [OPERATIONS.md](OPERATIONS.md) for the active Windows and Ubuntu VPS setup, deployment commands, SSH tunnel, and live pilot status.
 
@@ -113,7 +113,7 @@ Each replay starts flat with an independent cash balance. Use `PAPER_OPENING_CAS
 
 ### Forward pilot
 
-`forward-init` creates an independent flat paper portfolio from the last 50 verified closes. `forward-scan` fetches only due, uncommitted dates and uses the reviewed CSV calendar for open and publication-check times. Each completed session saves its verified OHLCV, observation time, calendar hash, and paper events in the same transaction as the position update. Duplicate commits reuse the existing session. The forward position locks the initial paper terms at initialization. The VPS systemd timer invokes the production worker without enabling a persistent scanner container. [Forward pilot runbook](OPERATIONS.md#continue-the-one-stock-pilot)
+When enabled, `forward-init` creates an independent flat paper portfolio from the last 50 verified closes. `forward-scan` fetches only due, uncommitted dates and uses the reviewed CSV calendar for open and publication-check times. Each completed session saves its verified OHLCV, observation time, calendar hash, and paper events in the same transaction as the position update. Duplicate commits reuse the existing session. The forward position locks the initial paper terms at initialization. The VPS systemd timer invokes the production worker without enabling a persistent scanner container. [Forward pilot reference](OPERATIONS.md#forward-pilot-reference)
 
 ### Production
 

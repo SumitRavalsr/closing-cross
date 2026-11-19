@@ -1,6 +1,56 @@
 # Scanner operations and handoff
 
-The Windows development stack passed its fixture test and the Ubuntu VPS completed a verified live Angel One replay for one NSE stock. The code now includes a paper trade ledger for verified replays. The production worker runs on demand. Read this file before working on deployments or continuing the one-stock pilot. [ARCHITECTURE.md](ARCHITECTURE.md) describes the services and [BUILD_PLAN.md](BUILD_PLAN.md) defines the rollout gate.
+The current dashboard priority is a historical portfolio backtest for 30–50 user-selected NSE equities, with ₹10,000 shared starting cash. The earlier forward pilot and timer are paused. The Ubuntu VPS previously completed a verified Angel One replay and paper ledger for one NSE stock. [ARCHITECTURE.md](ARCHITECTURE.md) describes the services and [BUILD_PLAN.md](BUILD_PLAN.md) records the pilot plan.
+
+## Run the portfolio backtest
+
+[portfolio.example.json](portfolio.example.json) is ready to run with 36 Nifty 50 constituents across 15 industries. The group gives the backtest a spread of sectors and share prices. The watchlist uses alphabetical order for same-session buy priority. For a custom test, copy the file and edit `watchlist` to contain 30–50 distinct NSE equity symbols. The default opening cash is ₹10,000 shared across the entire portfolio. The adjustable ₹2,000 entry limit per company includes the fee and slippage. The worker sizes each order in whole shares from the lower of available cash and the cap. Companies can stay flat throughout the run. [NSE Indices constituent list](https://www.niftyindices.com/indices/equity/broad-based-indices/nifty--50)
+
+The same 20/50 SMA rule applies independently to each company. Fills are at the next session's adjusted open. Sales are applied first, then buys compete for remaining cash in watchlist order. The worker reads each day's final NSE bhavcopy once for all companies. A missing exchange session stops the run. An individual symbol with incomplete candles or an unsupported corporate action is excluded from the whole calculation and listed in the report.
+
+Run from the VPS checkout after deploying the updated stack. This command funds the portfolio for 20 November 2025 through 19 November 2026, with earlier candles for SMA warm-up. The calendar includes the 2025 weekday Muhurat session and the 2026 Sunday Budget and Muhurat sessions. [2025 NSE holidays](https://nsearchives.nseindia.com/content/circulars/CMTR65587.pdf) · [2026 NSE holidays](https://nsearchives.nseindia.com/content/circulars/CMTR71775.pdf) · [January election holiday](https://nsearchives.nseindia.com/content/circulars/CMTR72260.pdf) · [Budget session](https://nsearchives.nseindia.com/content/circulars/CMTR72349.pdf)
+
+```bash
+cd ~/closing-cross-git
+sudo docker compose -p closing-cross-prod -f compose.prod.yaml run --rm --build \
+  -v "$PWD/portfolio.example.json:/config/portfolio.json:ro" worker \
+  closing-cross backtest-portfolio --watchlist /config/portfolio.json \
+  --from 2025-11-20 --through 2026-11-19 --warmup-from 2025-09-01 \
+  --closed-on 2025-10-02 --closed-on 2025-10-22 --closed-on 2025-11-05 --closed-on 2025-12-25 \
+  --closed-on 2026-01-15 --closed-on 2026-01-26 --closed-on 2026-03-03 --closed-on 2026-03-26 \
+  --closed-on 2026-03-31 --closed-on 2026-04-03 --closed-on 2026-04-14 --closed-on 2026-05-01 \
+  --closed-on 2026-05-28 --closed-on 2026-06-26 --closed-on 2026-09-14 --closed-on 2026-10-02 \
+  --closed-on 2026-10-20 --closed-on 2026-11-10 --special-session 2026-02-01 --special-session 2026-11-08
+```
+
+The dashboard shows the latest saved backtest, including net P&L after modeled fees and slippage, holdings, fills, skipped signals, exclusions, and daily equity. The comparison uses the Nifty 50 Price Index from the first funded close through the same final close, excluding dividends. Max drawdown is the largest percentage decline from a running peak at daily closes. An unavailable close stops the run before it saves a report. To use the local stack, use `docker compose -p closing-cross-dev -f compose.dev.yaml` and mount the Windows JSON path into the same `/config/portfolio.json` location. [NSE index history](https://www.niftyindices.com/reports)
+
+The local 12-month run saved an annual report for 248 sessions. It tested 34 of the 36 watchlist symbols and excluded `HINDUNILVR` and `TMPV` for unsupported corporate actions. The strategy ended at ₹8,395.19 after ₹132 in modeled fees and ₹139 in modeled slippage. Return was −16.05% with 18.99% max drawdown, compared with −2.59% and 15.56% for the Nifty 50 Price Index.
+
+## Run the historical backtest
+
+The backtest reads official NSE final bhavcopies and checks NSE corporate actions. It starts flat with ₹5,000 on 1 November and uses earlier closes for SMA warm-up. The first funded session is 2 November. A 20/50 upward crossover can queue a buy at the next session's open, and a downward crossover can queue a sale of the open position. The dashboard shows cash or shares held on days without a fill. P&L includes the configured ₹2 per fill and ₹1 per share adverse slippage at the default settings. Open positions are marked at the final close in the selected range.
+
+On the VPS after deploying the updated production stack, run:
+
+```bash
+cd ~/closing-cross-git
+sudo docker compose -p closing-cross-prod -f compose.prod.yaml run --rm --build worker \
+  closing-cross backtest-nse --from 2026-11-01 --through 2026-11-19 --warmup-from 2026-08-17 --cash 5000 \
+  --closed-on 2026-09-14 --closed-on 2026-10-02 --closed-on 2026-10-20 --closed-on 2026-11-10 \
+  --special-session 2026-11-08
+```
+
+On the laptop use `docker compose -p closing-cross-dev -f compose.dev.yaml` in place of the production Compose prefix. The dashboard reads its own environment's saved report at `/api/pilot/backtest`. The verified 19 November result is ₹5,115.60 in equity, ₹988.80 in cash, and three shares held. The ₹115.60 gain is unrealized. There was one buy, on 12 November, at ₹1,336.40 per share including modeled slippage. [NSE market timings and holidays](https://www.nseindia.com/resources/exchange-communication-holidays)
+
+If the older timer was already enabled on the VPS, stop its unit and disable the timer there:
+
+```bash
+sudo systemctl disable --now closing-cross-forward.timer
+sudo systemctl stop closing-cross-forward.service
+```
+
+Current builds default to `FORWARD_ENABLED=false` and skip the forward commands while paused.
 
 ## Current environments
 
@@ -77,7 +127,7 @@ The laptop uses its fixture database for development. If verified report data is
 
 ## Verify the paper trade ledger
 
-Locally, run the development startup and fixture commands from **Develop and deploy**, then refresh `http://127.0.0.1:5173/`. The **Fixture · Paper trade ledger** shows two fills, cash and equity of ₹804.00, zero shares held, and net P&L of −₹196.00. Expand **Daily cash and equity** to see ₹734.00 equity at session 52. Rerun `seed-fixture` and verify the same two fills.
+Locally, run the development startup and fixture commands from **Develop and deploy**. The fixture report at `http://127.0.0.1:5173/api/pilot/paper-ledgers` shows two fills, cash and equity of ₹804.00, zero shares held, and net P&L of −₹196.00. The daily marks include ₹734.00 equity at session 52. Rerun `seed-fixture` and verify the same two fills.
 
 After deploying the ledger build to the VPS, use the latest saved verified scan to build a paper ledger without fetching candles again:
 
@@ -86,11 +136,11 @@ cd ~/closing-cross-git
 sudo docker compose -p closing-cross-prod -f compose.prod.yaml run --rm --build worker closing-cross paper-ledger
 ```
 
-Refresh the tunnel dashboard to see **RELIANCE · Paper trade ledger**. Subsequent `scan-nse` runs save the ledger automatically. A historical replay can have zero fills if no eligible crossover occurred or if the allocation could not buy one share. The last crossover can be pending when the next opening candle falls outside the report.
+Inspect `/api/pilot/paper-ledgers` through the tunnel to see the verified paper ledger. Subsequent `scan-nse` runs save it automatically. A historical replay can have zero fills if no eligible crossover occurred or if the allocation could not buy one share. The last crossover can be pending when the next opening candle falls outside the report.
 
-## Continue the one-stock pilot
+## Forward pilot reference
 
-The saved `RELIANCE` paper ledger worked on the VPS. Deploy the forward pilot, run a scheduled session manually first, and then enable the timer. Record three consecutive automatic NSE sessions, including login after midnight, before expanding the watchlist.
+The saved `RELIANCE` paper ledger worked on the VPS. Use these steps only if the forward pilot is resumed. To resume on a current build, explicitly set `FORWARD_ENABLED=true` in the VPS backend env file. Record three consecutive automatic NSE sessions, including login after midnight, before expanding the watchlist.
 
 ### Prepare the calendar and seed
 

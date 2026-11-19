@@ -9,13 +9,16 @@ from pathlib import Path
 import httpx
 
 from closing_cross.adapters.angel import SmartAPI
+from closing_cross.adapters.backtest import check_corporate_actions, store_backtest
 from closing_cross.adapters.bhavcopy import Bhavcopy
 from closing_cross.adapters.database import connect, migrate
 from closing_cross.adapters.paper import save_ledger
 from closing_cross.domain.candles import DataError
 from closing_cross.domain.paper import PaperSession, PaperTerms, build_ledger
 from closing_cross.domain.strategy import crossover
+from closing_cross.scanner.backtest import backtest, load_history
 from closing_cross.scanner.forward import initialize, run_forward
+from closing_cross.scanner.portfolio import read_watchlist, run_portfolio
 from closing_cross.scanner.verified import build_latest_ledger, save_report, validate_range, verify_and_scan
 from closing_cross.settings import paper_terms
 
@@ -47,6 +50,16 @@ def main() -> None:
     commands.add_parser("migrate")
     commands.add_parser("seed-fixture")
     commands.add_parser("paper-ledger", help="Build paper accounting for the latest saved verified scan")
+    historical = commands.add_parser("backtest-nse", help="Run a funded historical backtest from public NSE bhavcopy")
+    portfolio = commands.add_parser("backtest-portfolio", help="Backtest a JSON watchlist using shared cash")
+    for command in (historical, portfolio):
+        command.add_argument("--from", dest="start", type=date.fromisoformat, required=True)
+        command.add_argument("--through", type=date.fromisoformat, required=True)
+        command.add_argument("--warmup-from", type=date.fromisoformat, required=True)
+        command.add_argument("--closed-on", action="append", type=date.fromisoformat, default=[])
+        command.add_argument("--special-session", action="append", type=date.fromisoformat, default=[])
+    historical.add_argument("--cash", default="5000.00", help="Opening cash and maximum position allocation in INR")
+    portfolio.add_argument("--watchlist", type=Path, required=True, help="JSON configuration file")
     forward_init = commands.add_parser("forward-init", help="Start a flat forward portfolio from a verified seed")
     forward_init.add_argument("--calendar", type=Path, required=True)
     forward_init.add_argument("--session", type=date.fromisoformat, required=True, help="First forward session")
@@ -66,6 +79,40 @@ def main() -> None:
         migrate()
     elif arguments.command == "seed-fixture":
         seed_fixture()
+    elif arguments.command in {"backtest-nse", "backtest-portfolio"}:
+        try:
+            costs = paper_terms()
+            is_portfolio = arguments.command == 'backtest-portfolio'
+            if is_portfolio:
+                symbols, terms = read_watchlist(arguments.watchlist, costs)
+            else:
+                symbols = [os.environ.get("PILOT_NSE_SYMBOL", "RELIANCE").strip().upper()]
+                terms = PaperTerms.parse([arguments.cash, arguments.cash, str(costs.fee), str(costs.slippage_per_share)])
+            symbol = symbols[0]
+            closures, special = set(arguments.closed_on), set(arguments.special_session)
+            validate_range(symbol, arguments.warmup_from, arguments.through, closures, max_days=466 if is_portfolio else 366)
+            if not arguments.warmup_from < arguments.start <= arguments.through:
+                raise DataError('Choose funding and end dates after the candle warm-up start')
+            if special & closures or any(not arguments.warmup_from <= day <= arguments.through for day in special):
+                raise DataError('Special sessions must be within the candle range and cannot also be holidays')
+            with httpx.Client(timeout=20, follow_redirects=False) as http:
+                if is_portfolio:
+                    report = run_portfolio(http, symbols, terms, arguments.start, arguments.warmup_from,
+                                           arguments.through, closures, special)
+                else:
+                    check_corporate_actions(http, symbol, arguments.warmup_from, arguments.through)
+                    candles = load_history(Bhavcopy(http), symbol, arguments.warmup_from, arguments.through, closures, special)
+                    report = backtest(candles, symbol, arguments.start, terms)
+            migrate()
+            report_id = store_backtest(report)
+            print(json.dumps({
+                'id': report_id, **({'tested': len(report['tested']), 'excluded': len(report['excluded'])}
+                                    if is_portfolio else {'symbol': symbol}), 'funded_on': report['funded_on'],
+                'first_session': report['first_session'], 'last_session': report['last_session'],
+                **report['summary'], 'fills': len(report['fills']),
+            }, indent=2))
+        except (DataError, OSError) as error:
+            parser.exit(1, f"Backtest stopped. {error}\n")
     elif arguments.command == "paper-ledger":
         try:
             terms = paper_terms()
@@ -74,6 +121,8 @@ def main() -> None:
         except DataError as error:
             parser.exit(1, f"Paper ledger stopped. {error}\n")
     elif arguments.command in {"forward-init", "forward-scan"}:
+        if os.environ.get("FORWARD_ENABLED", "").lower() != "true":
+            parser.exit(0, "Forward paper pilot is paused.\n")
         try:
             migrate()
             if arguments.command == "forward-init":
