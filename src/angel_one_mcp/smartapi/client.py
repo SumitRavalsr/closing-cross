@@ -15,6 +15,7 @@ from angel_one_mcp.smartapi.errors import BrokerError
 IST = ZoneInfo('Asia/Kolkata')
 BASE_URL = 'https://apiconnect.angelone.in'
 LOGIN = '/rest/auth/angelbroking/user/v1/loginByPassword'
+REFRESH = '/rest/auth/angelbroking/jwt/v1/generateTokens'
 SEARCH = '/rest/secure/angelbroking/order/v1/searchScrip'
 HISTORY = '/rest/secure/angelbroking/historical/v1/getCandleData'
 
@@ -27,6 +28,8 @@ class SmartAPI:
     def __init__(self, http: httpx.Client):
         self.http = http
         self._credentials = AngelCredentials.load()
+        self._refresh_token: str | None = None
+        self._feed_token: str | None = None
         mac = f'{getnode():012x}'
         self._headers = {
             'Accept': 'application/json', 'Content-Type': 'application/json', 'Accept-Encoding': 'identity',
@@ -79,11 +82,35 @@ class SmartAPI:
         data = self._post(LOGIN, 'login', {
             'clientcode': credentials.client_code, 'password': credentials.pin, 'totp': totp,
         })
-        token = data.get('jwtToken') if isinstance(data, dict) else None
-        if not isinstance(token, str) or not re.fullmatch(r'[A-Za-z0-9._-]{1,8192}', token):
-            raise BrokerError('SmartAPI login response did not contain an access token')
-        self._headers['Authorization'] = f'Bearer {token}'
+        self._set_session(data)
 
+    def recover_session(self) -> None:
+        self._headers.pop('Authorization', None)
+        if self._refresh_token:
+            try:
+                self._set_session(self._post(REFRESH, 'token refresh', {'refreshToken': self._refresh_token}))
+                return
+            except BrokerError:
+                self.clear_session()
+        self.login()
+
+    def clear_session(self) -> None:
+        self._headers.pop('Authorization', None)
+        self._refresh_token = None
+        self._feed_token = None
+
+    def _set_session(self, data) -> None:
+        if not isinstance(data, dict) or not (token := _session_token(data.get('jwtToken'))):
+            raise BrokerError('SmartAPI session response did not contain an access token')
+        self._headers['Authorization'] = f'Bearer {token}'
+        self._refresh_token = _session_token(data.get('refreshToken'))
+        self._feed_token = _session_token(data.get('feedToken'))
+
+
+def _session_token(value) -> str | None:
+    if isinstance(value, str) and re.fullmatch(r'[A-Za-z0-9._-]{1,8192}', value):
+        return value
+    return None
 
 
 def _invalid_json_constant(_: str):

@@ -9,6 +9,7 @@ dependencies = [
     "pyotp>=2.9,<3",
     "tzdata>=2025.2",
     "mcp>=1.28,<2",
+    "websockets>=15,<17",
 ]
 
 [dependency-groups]

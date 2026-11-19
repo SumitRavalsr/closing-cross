@@ -82,6 +82,8 @@ Expect one healthy container, the fixed `/usr/local/sbin/closing-cross-mcp` comm
 
 Put optional IP headers in root-owned `/etc/closing-cross/mcp.env`. For updates, rebuild the image, then run `systemctl restart closing-cross-mcp.service`. To rotate credentials, rerun the provisioning script and restart the same service. Systemd decrypts the bundle at service startup. The runtime credential is mounted read-only and removed when the service stops.
 
+Live account tools are available at startup to every client authorized by the shared SSH configuration. Check that `server_status` reports `broker_access: trading_enabled`. When your SmartAPI key requires a registered static IP, register the VPS's actual outbound IP with Angel One. The optional IP headers cannot change the network source address. [SmartAPI order and GTT requirements](https://smartapi.angelone.in/docs)
+
 ## 4. Connect a stdio MCP client
 
 Add this to the client's `~/.ssh/config`, substituting the same verified VPS host you use for administrative SSH:
@@ -121,11 +123,19 @@ To revoke access, remove the public-key line from `/etc/ssh/closing-cross-mcp.ke
 
 | Area | Tools and data |
 | --- | --- |
-| Instruments and quotes | `search_instruments`, `instrument_master` (filtered public instrument master), `market_quote` (LTP, OHLC, full quote), `instrument_lists` (NSE/BSE intraday lists and cautionary scrips) |
+| Instruments and quotes | `search_instruments`, `instrument_master` (filtered public instrument master), `market_quote` (LTP, OHLC, full quote), `last_traded_price`, `instrument_lists` (NSE/BSE intraday lists and cautionary scrips) |
 | Historical and derivatives | `historical_data` (candles or historical OI), `option_greeks`, `derivatives_snapshot` (PCR, price/OI movers, OI buildup) |
 | Account | `account_snapshot` (profile, funds, holdings, all holdings, positions, order book, trade book), `order_details`, `gtt_rules`, `gtt_rule_details`, `edis_transaction_status` |
 | Calculators | `estimate_margin`, `estimate_charges` for hypothetical trades |
+| WebSocket captures | `market_ticks` (LTP, quote, snap quote), `order_updates` (new account events) |
+| Live trading | `place_order` (BUY or SELL), `modify_order`, `cancel_order`, `convert_position` |
+| Live GTT | `create_gtt_rule`, `modify_gtt_rule`, `cancel_gtt_rule` |
+| eDIS and session actions | `initiate_edis`, `generate_edis_tpin`, `logout_broker_session` |
 | Connectivity | `server_status` checks the MCP connection without starting a broker session |
 
-Dates and times passed to historical tools are local IST without an offset. Historical data and selected list tools take `limit` and `offset`; their list results give `next_offset` where more rows exist. Broker entitlements and exchange segment rules still apply. The tool set covers named read-only REST operations, including live quote snapshots. Continuous broker WebSocket streams and a bulk export of the full instrument master are outside this version. Order and GTT actions, position conversion, fund movement, and eDIS authorizations are outside the read-only scope. [Angel One SmartAPI](https://smartapi.angelone.in/docs) · [MCP stdio transport](https://py.sdk.modelcontextprotocol.io/v1/)
+Dates and times passed to historical tools are local IST without an offset. Historical data and selected list tools take `limit` and `offset`. Their list results give `next_offset` where more rows exist. WebSocket tools collect new events for up to 15 seconds and return a batch. To convert raw market tick prices, divide currency prices by 10,000,000 and other prices by 100. [Angel One SmartAPI](https://smartapi.angelone.in/docs)
+
+Order placement returns a broker acknowledgement. Use `account_snapshot` with `view=order_book` or `order_details` with the unique order ID to check status and fills. Modification and cancellation take the ordinary `orderid`. If an action errors, check its broker state before requesting it again. Broker entitlements and exchange rules apply.
+
+The user completes any eDIS TPIN and OTP verification on the CDSL site. Publisher Login and HTTPS postbacks require a separate web integration. This service uses shared server-side login and on-demand WebSocket order updates. Continuous client subscriptions and funds transfer are outside the current MCP coverage. [Angel One SmartAPI](https://smartapi.angelone.in/docs)
 

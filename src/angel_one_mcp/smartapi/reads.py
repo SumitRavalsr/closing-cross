@@ -70,6 +70,7 @@ ACCOUNT_PATHS = {
 
 class Read(str, Enum):
     SEARCH = SEARCH
+    LTP = f'{ORDERS}/getLtpData'
     QUOTE = f'{SECURE}/market/v1/quote/'
     CANDLES = HISTORY
     HISTORICAL_OI = f'{SECURE}/historical/v1/getOIData'
@@ -91,7 +92,7 @@ GET_READS = {Read.PCR, Read.NSE_INTRADAY, Read.BSE_INTRADAY, Read.CAUTION}
 
 _AUTH_FIELDS = {
     'accesstoken', 'authorization', 'apikey', 'clientsecret', 'feedtoken', 'idtoken',
-    'jwttoken', 'password', 'pin', 'privatekey', 'refreshtoken', 'secret',
+    'jwttoken', 'pan', 'password', 'pin', 'privatekey', 'refreshtoken', 'secret',
     'totp', 'totpsecret', 'tpin', 'xprivatekey',
 }
 
@@ -142,18 +143,24 @@ class SmartAPIReads(SmartAPI):
         self._next_login = monotonic() + 15
         super().login()
 
-    def _authenticated(self, method: str, path: str, label: str, payload=None):
+    def _authenticated(self, method: str, path: str, label: str, payload=None, *, retry_expired=True):
         if 'Authorization' not in self._headers:
-            self.login()
+            self.recover_session()
         try:
             value = self._request(method, path, label, payload)
         except SmartAPISessionExpired:
             self._headers.pop('Authorization', None)
-            self.login()
+            if not retry_expired:
+                raise
+            self.recover_session()
             value = self._request(method, path, label, payload)
+        return _clean(value, self.session_secrets())
+
+    def session_secrets(self) -> set[str]:
         secrets = {self._credentials.api_key, self._credentials.pin, self._credentials.totp_secret,
-                   self._headers['Authorization'].removeprefix('Bearer ')}
-        return _clean(value, secrets)
+                   self._headers.get('Authorization', '').removeprefix('Bearer ')}
+        secrets.update(token for token in (self._refresh_token, self._feed_token) if token)
+        return secrets
 
     def read(self, endpoint: Read, payload: dict | None = None):
         method = 'GET' if endpoint in GET_READS else 'POST'

@@ -54,12 +54,14 @@ def test_mcp_fixed_reads_and_session_recovery(tmp_path, monkeypatch):
 
     async def exercise(server):
         tools = {tool.name: tool for tool in await server.list_tools()}
-        assert 'place_order' not in tools and 'saved_report' not in tools
-        assert all(tool.annotations.readOnlyHint for tool in tools.values())
+        assert 'saved_report' not in tools
+        for name in ('search_instruments', 'historical_data', 'account_snapshot', 'order_details', 'server_status'):
+            assert tools[name].annotations.readOnlyHint
         with pytest.raises(ToolError):
             await server.call_tool('order_details', {'unique_order_id': '../../placeOrder'})
         _, result = await server.call_tool('server_status', {})
         assert result['status'] == 'ok'
+        assert result['broker_access'] == 'trading_enabled'
         assert not requests
         _, result = await server.call_tool('search_instruments', {'exchange': 'NSE', 'query': 'reliance'})
         assert result == {'data': [{'symboltoken': '2885'}]}
