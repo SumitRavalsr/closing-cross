@@ -96,9 +96,10 @@ def capture_stream(headers: dict[str, str], secrets: set[str], seconds: int, lim
                     continue
                 items.append(_clean(message, secrets))
     except InvalidStatus as error:
-        if error.response.status_code == 401:
+        status = error.response.status_code
+        if status == 401 or (not market and status == 403):
             raise SmartAPISessionExpired('SmartAPI stream session expired') from None
-        raise BrokerError(f'SmartAPI stream handshake returned HTTP {error.response.status_code}') from None
+        raise BrokerError(f'SmartAPI stream handshake returned HTTP {status}') from None
     except ConnectionClosedOK:
         pass
     except (ValueError, OSError, RecursionError, struct.error, WebSocketException):

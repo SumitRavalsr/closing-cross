@@ -2,19 +2,21 @@ import asyncio
 import json
 import struct
 from contextlib import contextmanager
+from http import HTTPStatus
 from threading import Thread
 
 import httpx
+import pytest
 from websockets.sync.server import serve
 
 from angel_one_mcp.server import create_server
 from angel_one_mcp.smartapi import streams
-from angel_one_mcp.smartapi.client import LOGIN
+from angel_one_mcp.smartapi.client import LOGIN, REFRESH
 
 
 @contextmanager
-def websocket_endpoint(handler):
-    with serve(handler, '127.0.0.1', 0) as server:
+def websocket_endpoint(handler, *, process_request=None):
+    with serve(handler, '127.0.0.1', 0, process_request=process_request) as server:
         thread = Thread(target=server.serve_forever)
         thread.start()
         try:
@@ -24,7 +26,8 @@ def websocket_endpoint(handler):
             thread.join(timeout=5)
 
 
-def test_market_ticks_and_order_updates_share_private_session(monkeypatch, tmp_path):
+@pytest.fixture
+def stream_credentials(monkeypatch, tmp_path):
     credentials = tmp_path / 'angel.json'
     credentials.write_text(json.dumps({
         'api_key': 'mock-api-key', 'client_code': 'mock-client', 'pin': '0123',
@@ -32,6 +35,9 @@ def test_market_ticks_and_order_updates_share_private_session(monkeypatch, tmp_p
     }), encoding='utf-8')
     credentials.chmod(0o600)
     monkeypatch.setenv('ANGEL_CREDENTIALS_FILE', str(credentials))
+
+
+def test_market_ticks_and_order_updates_share_private_session(monkeypatch, stream_credentials):
     logins = []
 
     def upstream(request):
@@ -84,3 +90,41 @@ def test_market_ticks_and_order_updates_share_private_session(monkeypatch, tmp_p
         with httpx.Client(transport=httpx.MockTransport(upstream)) as http:
             asyncio.run(exercise(create_server(http)))
     assert logins == [LOGIN]
+
+
+def test_order_updates_refreshes_expired_token_on_forbidden(monkeypatch, stream_credentials):
+    requests = []
+    handshakes = []
+
+    def upstream(request):
+        requests.append(request.url.path)
+        if request.url.path == LOGIN:
+            data = {'jwtToken': 'expired-token', 'refreshToken': 'mock-refresh'}
+        else:
+            assert request.url.path == REFRESH
+            assert json.loads(request.content) == {'refreshToken': 'mock-refresh'}
+            data = {'jwtToken': 'new-token'}
+        return httpx.Response(200, json={'status': True, 'data': data})
+
+    def authorize(socket, request):
+        authorization = request.headers['Authorization']
+        handshakes.append(authorization)
+        if authorization != 'Bearer new-token':
+            return socket.respond(HTTPStatus.FORBIDDEN, 'Expired token')
+
+    event = {'order-status': 'AB05', 'orderData': {'orderid': '100'}}
+
+    def order_events(socket):
+        socket.send(json.dumps(event))
+
+    async def exercise(server):
+        _, updates = await server.call_tool('order_updates', {'seconds': 2, 'limit': 1})
+        assert updates == {'data': [event]}
+
+    with websocket_endpoint(order_events, process_request=authorize) as order_url:
+        monkeypatch.setattr(streams, 'ORDER_STREAM', order_url)
+        with httpx.Client(transport=httpx.MockTransport(upstream)) as http:
+            asyncio.run(exercise(create_server(http)))
+
+    assert requests == [LOGIN, REFRESH]
+    assert handshakes == ['Bearer expired-token', 'Bearer new-token']

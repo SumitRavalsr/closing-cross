@@ -1,6 +1,6 @@
 from enum import Enum
 
-from angel_one_mcp.smartapi.client import SmartAPISessionExpired
+from angel_one_mcp.smartapi.client import VERIFY_DIS, SmartAPISessionExpired
 from angel_one_mcp.smartapi.errors import BrokerError
 from angel_one_mcp.smartapi.reads import ORDERS, SECURE, SmartAPIReads
 
@@ -13,7 +13,7 @@ class Action(Enum):
     CREATE_GTT_RULE = f'{SECURE}/gtt/v1/createRule'
     MODIFY_GTT_RULE = f'{SECURE}/gtt/v1/modifyRule'
     CANCEL_GTT_RULE = f'{SECURE}/gtt/v1/cancelRule'
-    INITIATE_EDIS = f'{SECURE}/edis/v1/verifyDis'
+    INITIATE_EDIS = VERIFY_DIS
     GENERATE_EDIS_TPIN = f'{SECURE}/edis/v1/generateTPIN'
     LOGOUT = f'{SECURE}/user/v1/logout'
 

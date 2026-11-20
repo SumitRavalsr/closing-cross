@@ -430,7 +430,10 @@ def create_server(http: httpx.Client) -> AngelMCP:
     @action_tool
     async def initiate_edis(isin: Annotated[str, StringConstraints(pattern=r'^[A-Z]{2}[A-Z0-9]{9}[0-9]$')],
                             quantity: Quantity) -> dict[str, Any]:
-        """Request eDIS authorization details. The user completes authorization on the CDSL website."""
+        """Request eDIS authorization details for completion on the CDSL website.
+
+        If already registered today, return status 'already_registered' and the ReqId for edis_transaction_status.
+        """
         return _result(await call('action', Action.INITIATE_EDIS, {'isin': isin, 'quantity': str(quantity)}))
 
     @action_tool

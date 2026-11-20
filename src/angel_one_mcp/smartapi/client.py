@@ -18,6 +18,7 @@ LOGIN = '/rest/auth/angelbroking/user/v1/loginByPassword'
 REFRESH = '/rest/auth/angelbroking/jwt/v1/generateTokens'
 SEARCH = '/rest/secure/angelbroking/order/v1/searchScrip'
 HISTORY = '/rest/secure/angelbroking/historical/v1/getCandleData'
+VERIFY_DIS = '/rest/secure/angelbroking/edis/v1/verifyDis'
 
 
 class SmartAPISessionExpired(BrokerError):
@@ -62,6 +63,11 @@ class SmartAPI:
             raise BrokerError(f'SmartAPI {operation} returned invalid JSON') from None
         if not isinstance(body, dict) or body.get('status') is not True or 'data' not in body:
             code = (body.get('errorcode') or body.get('errorCode')) if isinstance(body, dict) else None
+            if endpoint == VERIFY_DIS and code == 'AG1000' and body.get('status') is False:
+                data = body.get('data')
+                request_id = data.get('ReqId') if isinstance(data, dict) else None
+                if isinstance(request_id, str) and re.fullmatch(r'[0-9]{1,20}', request_id):
+                    return {'status': 'already_registered', 'ReqId': request_id}
             if endpoint != LOGIN and code in ('AG8001', 'AG8002', 'AG8003', 'AB1010', 'AB1011'):
                 raise SmartAPISessionExpired('SmartAPI session expired')
             suffix = f' ({code})' if isinstance(code, str) and re.fullmatch(r'A[BG][0-9]{4}', code) else ''

@@ -158,3 +158,23 @@ def test_additional_account_actions(trading):
         LOGIN, 'gtt/v1/createRule', 'gtt/v1/modifyRule', 'gtt/v1/cancelRule', 'order/v1/convertPosition',
         'edis/v1/verifyDis', 'edis/v1/generateTPIN', 'user/v1/logout', LOGIN, 'order/v1/getLtpData',
     ]
+
+
+def test_initiate_edis_returns_request_id_when_already_registered(trading):
+    request_id = '0390624715013748'
+
+    def upstream(request):
+        if request.url.path == LOGIN:
+            return httpx.Response(200, json={'status': True, 'data': {'jwtToken': 'mock-jwt'}})
+        assert request.url.path == '/rest/secure/angelbroking/edis/v1/verifyDis'
+        return httpx.Response(200, json={
+            'status': False, 'errorcode': 'AG1000',
+            'data': {'ReqId': request_id, 'ReturnURL': None, 'DPId': None, 'BOID': None, 'TransDtls': None},
+        })
+
+    async def exercise(server):
+        _, result = await server.call_tool('initiate_edis', {'isin': 'INE062A01020', 'quantity': 2})
+        assert result == {'data': {'status': 'already_registered', 'ReqId': request_id}}
+
+    with httpx.Client(transport=httpx.MockTransport(upstream)) as http:
+        asyncio.run(exercise(create_server(http)))
